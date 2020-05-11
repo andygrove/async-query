@@ -2,6 +2,7 @@ use std::pin::Pin;
 
 use tokio::prelude::*;
 use tokio::stream::{self, Stream, StreamExt};
+use futures::{TryStreamExt};
 
 #[tokio::main]
 async fn main() {
@@ -10,25 +11,35 @@ async fn main() {
 
 async fn working_projection_example() {
 
-    let mut stream = stream::iter(vec![create_batch(), create_batch()]);
+    // create some sample batches of data with two columns
+    let iter = stream::iter(vec![create_batch(), create_batch()]);
 
     // simple projection to swap the column order
-    let projection_expr = vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))];
+    let projection_expr: Vec<Box<dyn Expression>> = vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))];
 
-    let mut results = stream.map(|batch| {
-        let columns: Vec<Int32Vector> = projection_expr.iter().map(|expr| expr.evaluate(&batch)).collect();
-        ColumnarBatch { columns }
-    });
+    // apply the projection to the stream
+    let mut results = iter.map(|batch| apply_projection(&batch, projection_expr.as_slice()));
 
+    // show the results
     while let Some(batch) = results.next().await {
         println!("{:?}", batch);
     }
 }
 
+async fn create_projection(stream: &dyn Stream<Item=ColumnarBatch>, projection_expr: &[Box<dyn Expression>]) -> Box<dyn Stream<Item=ColumnarBatch>> {
+    //TODO how can I implement this?
+    //Box::new(Box::pin(stream.and_then(|batch| apply_projection(&batch, projection_expr))))
+    unimplemented!()
+}
 
+///////////////////////////////////////
+// mock Arrow types below here
+///////////////////////////////////////
 
-
-//TODO use Arrow C data interface?
+fn apply_projection(batch: &ColumnarBatch, projection_expr: &[Box<dyn Expression>]) -> ColumnarBatch {
+    let columns: Vec<Int32Vector> = projection_expr.iter().map(|expr| expr.evaluate(&batch)).collect();
+    ColumnarBatch { columns }
+}
 
 #[derive(Clone, Debug)]
 struct Int32Vector {
@@ -71,24 +82,3 @@ fn create_batch() -> ColumnarBatch {
         columns: vec![a, b]
     }
 }
-
-trait Exec {
-    fn execute(&self) -> Box<dyn Stream<Item=ColumnarBatch>>;
-}
-
-struct Projection {
-    expr: Vec<Box<dyn Expression>>,
-    input: Box<dyn Stream<Item=ColumnarBatch>>
-}
-
-impl Exec for Projection {
-    fn execute(&self) -> Box<dyn Stream<Item=ColumnarBatch>> {
-
-        unimplemented!()
-        // Box::new(self.input.map(|b| {
-        //     let columns: Vec<Int32Vector> = self.expr.iter().map(|expr| expr.evaluate(b)).collect();
-        //     ColumnarBatch { columns }
-        // }))
-    }
-}
-

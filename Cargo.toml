@@ -9,3 +9,6 @@ edition = "2018"
 [dependencies]
 tokio = { version = "0.2", features = ["full"] }
 futures = "0.3"
+arrow = "0.17"
+parquet = "0.17"
+csv = "1.1"

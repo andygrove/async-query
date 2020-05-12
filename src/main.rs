@@ -1,17 +1,18 @@
+use std::{thread, time};
 use futures::stream::BoxStream;
 use tokio::stream::{self, Stream, StreamExt};
 
 #[tokio::main]
 async fn main() {
     let filenames = vec!["file1.parquet", "file2.parquet"];
-    let handles = filenames.iter().map(|filename| {
+    let handles: Vec<_> = filenames.iter().map(|filename| {
         let filename = filename.to_owned();
         tokio::spawn(async move {
             let partition = mock_read_file(filename);
             let mut results = create_query(partition);
             print_results(&mut results).await;
         })
-    });
+    }).collect(); // iterators are lazy so need to collect
 
     for handle in handles {
         handle.await.unwrap();
@@ -45,7 +46,20 @@ fn create_projection(
 // mock Arrow types and helper code below here
 /////////////////////////////////////////////////////////////////////////////
 
-fn mock_read_file(_filename: &str) -> BoxStream<'static, ColumnarBatch> {
+// struct CsvReader {
+//     filename: String
+// }
+
+// impl Stream for CsvReader {
+//     fn poll_next(self: std::pin::Pin<&mut Self>) {
+//
+//     }
+//
+// }
+
+fn mock_read_file(filename: &str) -> BoxStream<'static, ColumnarBatch> {
+    println!("Reading file {}", filename);
+    thread::sleep(time::Duration::from_secs(2));
     //TODO read file for real
     Box::pin(stream::iter(vec![create_batch(), create_batch()]))
 }

@@ -3,16 +3,22 @@ use std::pin::Pin;
 use tokio::prelude::*;
 use tokio::stream::{self, Stream, StreamExt};
 use futures::{TryStreamExt};
+use futures::stream::BoxStream;
 
 #[tokio::main]
 async fn main() {
 
     let mut results = execute_query().await;
 
-    // show the results
-    while let Some(batch) = results.next().await {
-        println!("{:?}", batch);
-    }
+
+    // let handle = tokio::spawn(async move {
+        // show the results
+        while let Some(batch) = results.next().await {
+            println!("{:?}", batch);
+        }
+    // });
+    //
+    // handle.join()
 }
 
 async fn execute_query() -> Pin<Box<dyn Stream<Item=ColumnarBatch>>> {
@@ -32,9 +38,13 @@ async fn execute_query() -> Pin<Box<dyn Stream<Item=ColumnarBatch>>> {
 
 }
 
-fn create_projection(stream: impl Stream<Item=ColumnarBatch> + 'static, projection_expr: Vec<Box<dyn Expression>>) -> Pin<Box<dyn Stream<Item=ColumnarBatch>>> {
+fn create_projection(stream: impl Stream<Item=ColumnarBatch> + 'static + Send, projection_expr: Vec<Box<dyn Expression>>) -> BoxStream<'static, ColumnarBatch> {
     Box::pin(stream.map(move |batch| apply_projection(&batch, &projection_expr)))
 }
+
+// Ah right, I forgot you will likely also want the + Send in Pin<Box<dyn Stream<Item=ColumnarBatch>> + Send>> somewhere down the line, or the equivalent but easier to read BoxStream<'static, ColumnarBatch>
+
+
 //
 // async fn now_lets_do_it_with_structs() {
 //
@@ -95,7 +105,7 @@ struct ColumnarBatch {
     columns: Vec<Int32Vector>
 }
 
-trait Expression {
+trait Expression: Send {
     fn evaluate(&self, batch: &ColumnarBatch) -> Int32Vector;
 }
 

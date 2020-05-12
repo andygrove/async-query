@@ -5,19 +5,34 @@ use tokio::stream::{self, Stream, StreamExt};
 
 #[tokio::main]
 async fn main() {
-    // create some sample batches of data with two columns
-    let data_source = stream::iter(vec![create_batch(), create_batch()]);
 
-    let mut results = execute_query(data_source).await;
+    // single partition (single-threaded example)
+    let single_partition = mock_read_file("file1.parquet");
+    let mut results = execute_query(single_partition).await;
+    print_results(&mut results).await;
 
-    while let Some(batch) = results.next().await {
-        println!("{:?}", batch);
+    // multiple partitions ... want to make this multi-threaded
+    let filenames = vec!["file1.parquet", "file2.parquet"];
+    let handles = filenames.iter()
+        .map(|filename| {
+            let filename = filename.to_owned();
+            tokio::spawn(async move {
+                let partition = mock_read_file(filename);
+                execute_query(partition).await
+            })
+        }
+    );
+
+    for handle in handles {
+        let mut results = handle.await.unwrap();
+        print_results(&mut results).await;
     }
 }
 
 async fn execute_query(
     iter: impl Stream<Item = ColumnarBatch> + Send + 'static,
-) -> Pin<Box<dyn Stream<Item = ColumnarBatch>>> {
+) -> BoxStream<'static, ColumnarBatch> {
+
     // simple projection to swap the column order
     let projection_expr_1: Vec<Box<dyn Expression>> =
         vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))];
@@ -32,15 +47,26 @@ async fn execute_query(
 }
 
 fn create_projection(
-    stream: impl Stream<Item = ColumnarBatch> + 'static + Send,
+    stream: impl Stream<Item = ColumnarBatch> + Send + 'static,
     projection_expr: Vec<Box<dyn Expression>>,
 ) -> BoxStream<'static, ColumnarBatch> {
     Box::pin(stream.map(move |batch| apply_projection(&batch, &projection_expr)))
 }
 
-///////////////////////////////////////
-// mock Arrow types below here
-///////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+// mock Arrow types and helper code below here
+/////////////////////////////////////////////////////////////////////////////
+
+fn mock_read_file(_filename: &str) -> BoxStream<'static, ColumnarBatch> {
+    //TODO read file for real
+    Box::pin(stream::iter(vec![create_batch(), create_batch()]))
+}
+
+async fn print_results(results: &mut BoxStream<'static, ColumnarBatch>) {
+    while let Some(batch) = results.next().await {
+        println!("{:?}", batch);
+    }
+}
 
 fn apply_projection(
     batch: &ColumnarBatch,

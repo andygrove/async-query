@@ -8,17 +8,17 @@ async fn main() {
         let filename = filename.to_owned();
         tokio::spawn(async move {
             let partition = mock_read_file(filename);
-            execute_query(partition).await
+            let mut results = create_query(partition);
+            print_results(&mut results).await;
         })
     });
 
     for handle in handles {
-        let mut results = handle.await.unwrap();
-        print_results(&mut results).await;
+        handle.await.unwrap();
     }
 }
 
-async fn execute_query(
+fn create_query(
     iter: impl Stream<Item = ColumnarBatch> + Send + 'static,
 ) -> BoxStream<'static, ColumnarBatch> {
     // simple projection to swap the column order

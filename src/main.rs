@@ -6,21 +6,8 @@ use futures::{TryStreamExt};
 
 #[tokio::main]
 async fn main() {
-    working_projection_example().await;
-}
 
-async fn working_projection_example() {
-
-    // create some sample batches of data with two columns
-    let iter = stream::iter(vec![create_batch(), create_batch()]);
-
-    // simple projection to swap the column order
-    let projection_expr_1: Vec<Box<dyn Expression>> = vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))];
-    let mut results = create_projection(iter, projection_expr_1).await;
-
-    // simple projection to swap the column order again
-    let projection_expr_2: Vec<Box<dyn Expression>> = vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))];
-    let mut results = create_projection(results, projection_expr_2).await;
+    let mut results = execute_query().await;
 
     // show the results
     while let Some(batch) = results.next().await {
@@ -28,9 +15,66 @@ async fn working_projection_example() {
     }
 }
 
-async fn create_projection(stream: impl Stream<Item=ColumnarBatch> + 'static, projection_expr: Vec<Box<dyn Expression>>) -> Pin<Box<dyn Stream<Item=ColumnarBatch>>> {
+async fn execute_query() -> Pin<Box<dyn Stream<Item=ColumnarBatch>>> {
+
+    // create some sample batches of data with two columns
+    let iter = stream::iter(vec![create_batch(), create_batch()]);
+
+    // simple projection to swap the column order
+    let projection_expr_1: Vec<Box<dyn Expression>> = vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))];
+    let mut results = create_projection(iter, projection_expr_1);
+
+    // simple projection to swap the column order again
+    let projection_expr_2: Vec<Box<dyn Expression>> = vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))];
+    let mut results = create_projection(results, projection_expr_2);
+
+    results
+
+}
+
+fn create_projection(stream: impl Stream<Item=ColumnarBatch> + 'static, projection_expr: Vec<Box<dyn Expression>>) -> Pin<Box<dyn Stream<Item=ColumnarBatch>>> {
     Box::pin(stream.map(move |batch| apply_projection(&batch, &projection_expr)))
 }
+//
+// async fn now_lets_do_it_with_structs() {
+//
+//     // create some sample batches of data with two columns
+//     let iter = stream::iter(vec![create_batch(), create_batch()]);
+//
+//     // simple projection to swap the column order
+//     let projection_1 = ProjectionExec::new(vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))]);
+//     let mut results = projection_1.execute(iter);
+//
+//     // simple projection to swap the column order again
+//     let projection_2 = ProjectionExec::new(vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))]);
+//     let mut results = projection_2.execute(results);
+//
+//     // show the results
+//     while let Some(batch) = results.next().await {
+//         println!("{:?}", batch);
+//     }
+// }
+
+///////////////////////////////////////
+// FAILED ATTEMPT AT STRUCT
+///////////////////////////////////////
+
+
+// struct ProjectionExec {
+//     expr: Vec<Box<dyn Expression>>,
+// }
+//
+// impl ProjectionExec {
+//     pub fn new(expr: Vec<Box<dyn Expression>>) -> Self {
+//         Self { expr }
+//     }
+//
+//     fn execute(&self, stream: impl Stream<Item=ColumnarBatch> + 'static) -> Pin<Box<dyn Stream<Item=ColumnarBatch> + '_>> {
+//         let projection_expr = self.expr.clone();
+//         Box::pin(stream.map(move |batch| apply_projection(&batch, &projection_expr)))
+//     }
+// }
+
 
 ///////////////////////////////////////
 // mock Arrow types below here

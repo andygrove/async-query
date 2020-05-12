@@ -1,27 +1,16 @@
-use std::pin::Pin;
-
 use futures::stream::BoxStream;
 use tokio::stream::{self, Stream, StreamExt};
 
 #[tokio::main]
 async fn main() {
-
-    // single partition (single-threaded example)
-    let single_partition = mock_read_file("file1.parquet");
-    let mut results = execute_query(single_partition).await;
-    print_results(&mut results).await;
-
-    // multiple partitions ... want to make this multi-threaded
     let filenames = vec!["file1.parquet", "file2.parquet"];
-    let handles = filenames.iter()
-        .map(|filename| {
-            let filename = filename.to_owned();
-            tokio::spawn(async move {
-                let partition = mock_read_file(filename);
-                execute_query(partition).await
-            })
-        }
-    );
+    let handles = filenames.iter().map(|filename| {
+        let filename = filename.to_owned();
+        tokio::spawn(async move {
+            let partition = mock_read_file(filename);
+            execute_query(partition).await
+        })
+    });
 
     for handle in handles {
         let mut results = handle.await.unwrap();
@@ -32,7 +21,6 @@ async fn main() {
 async fn execute_query(
     iter: impl Stream<Item = ColumnarBatch> + Send + 'static,
 ) -> BoxStream<'static, ColumnarBatch> {
-
     // simple projection to swap the column order
     let projection_expr_1: Vec<Box<dyn Expression>> =
         vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))];

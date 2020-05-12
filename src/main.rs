@@ -15,10 +15,12 @@ async fn working_projection_example() {
     let iter = stream::iter(vec![create_batch(), create_batch()]);
 
     // simple projection to swap the column order
-    let projection_expr: Vec<Box<dyn Expression>> = vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))];
+    let projection_expr_1: Vec<Box<dyn Expression>> = vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))];
+    let mut results = create_projection(iter, projection_expr_1).await;
 
-    // apply the projection to the stream
-    let mut results = iter.map(|batch| apply_projection(&batch, projection_expr.as_slice()));
+    // simple projection to swap the column order again
+    let projection_expr_2: Vec<Box<dyn Expression>> = vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))];
+    let mut results = create_projection(results, projection_expr_2).await;
 
     // show the results
     while let Some(batch) = results.next().await {
@@ -26,17 +28,15 @@ async fn working_projection_example() {
     }
 }
 
-async fn create_projection(stream: &dyn Stream<Item=ColumnarBatch>, projection_expr: &[Box<dyn Expression>]) -> Box<dyn Stream<Item=ColumnarBatch>> {
-    //TODO how can I implement this?
-    //Box::new(Box::pin(stream.and_then(|batch| apply_projection(&batch, projection_expr))))
-    unimplemented!()
+async fn create_projection(stream: impl Stream<Item=ColumnarBatch> + 'static, projection_expr: Vec<Box<dyn Expression>>) -> Pin<Box<dyn Stream<Item=ColumnarBatch>>> {
+    Box::pin(stream.map(move |batch| apply_projection(&batch, &projection_expr)))
 }
 
 ///////////////////////////////////////
 // mock Arrow types below here
 ///////////////////////////////////////
 
-fn apply_projection(batch: &ColumnarBatch, projection_expr: &[Box<dyn Expression>]) -> ColumnarBatch {
+fn apply_projection(batch: &ColumnarBatch, projection_expr: &Vec<Box<dyn Expression>>) -> ColumnarBatch {
     let columns: Vec<Int32Vector> = projection_expr.iter().map(|expr| expr.evaluate(&batch)).collect();
     ColumnarBatch { columns }
 }

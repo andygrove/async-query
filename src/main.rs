@@ -1,25 +1,18 @@
 use std::pin::Pin;
 
 use futures::stream::BoxStream;
-use futures::TryStreamExt;
-use tokio::prelude::*;
 use tokio::stream::{self, Stream, StreamExt};
 
 #[tokio::main]
 async fn main() {
     // create some sample batches of data with two columns
-    let iter = stream::iter(vec![create_batch(), create_batch()]);
+    let data_source = stream::iter(vec![create_batch(), create_batch()]);
 
-    let mut results = execute_query(iter).await;
+    let mut results = execute_query(data_source).await;
 
-    // let handle = tokio::spawn(async move {
-    // show the results
     while let Some(batch) = results.next().await {
         println!("{:?}", batch);
     }
-    // });
-    //
-    // handle.join()
 }
 
 async fn execute_query(
@@ -28,12 +21,12 @@ async fn execute_query(
     // simple projection to swap the column order
     let projection_expr_1: Vec<Box<dyn Expression>> =
         vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))];
-    let mut results = create_projection(iter, projection_expr_1);
+    let results = create_projection(iter, projection_expr_1);
 
     // simple projection to swap the column order (again) to demonstrate nested transformations
     let projection_expr_2: Vec<Box<dyn Expression>> =
         vec![Box::new(ColumnIndex::new(1)), Box::new(ColumnIndex::new(0))];
-    let mut results = create_projection(results, projection_expr_2);
+    let results = create_projection(results, projection_expr_2);
 
     results
 }

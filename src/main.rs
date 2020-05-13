@@ -25,13 +25,14 @@ use datafusion::error::Result;
 use datafusion::error::ExecutionError;
 use datafusion::execution::physical_plan::{PhysicalExpr, AggregateExpr};
 use datafusion::execution::physical_plan::expressions::{Column, Max};
+use datafusion::execution::physical_plan::common::build_file_list;
 
 
 #[tokio::main]
 async fn main() -> Result<()> {
 
     let mut ctx = ExecutionContext::new();
-    ctx.register_parquet("tripdata", "/mnt/nyctaxi/parquet/year=2019/month=05/yellow_tripdata_2019-05.parquet/part-00000-b3313547-ca60-402f-9659-c13bfba3ca8d-c000.snappy.parquet")?;
+    ctx.register_parquet("tripdata", "/mnt/nyctaxi/parquet")?;
 
     let plan = ctx.table("tripdata")?
         .aggregate(vec![col("passenger_count")], vec![aggregate_expr("max", col("fare_amount"), DataType::Float64)])?
@@ -43,11 +44,13 @@ async fn main() -> Result<()> {
     //TODO optimize plan
 
     println!("Compiling query ...");
-    let mut stream = compile_query(&mut ctx, &plan)?;
+    let mut partitions = compile_query(&mut ctx, &plan)?;
 
     println!("Fetching results ...");
-    while let Some(batch) = stream.next().await {
-        println!("Got batch with {} rows", batch.num_rows());
+    for partition in partitions.iter_mut() {
+        while let Some(batch) = partition.next().await {
+            println!("Got batch with {} rows", batch.num_rows());
+        }
     }
 
     Ok(())
@@ -67,26 +70,47 @@ async fn main() -> Result<()> {
     // }
 }
 
-fn compile_query(ctx: &mut ExecutionContext, plan: &LogicalPlan) -> Result<BoxStream<'static, RecordBatch>> {
+fn compile_query(ctx: &mut ExecutionContext, plan: &LogicalPlan) -> Result<Vec<BoxStream<'static, RecordBatch>>> {
     match plan {
         LogicalPlan::Projection { expr, input, .. } => {
             let input = compile_query(ctx, input.as_ref())?;
             let expr = expr.iter().map(|e| compile_expression(e)).collect::<Result<Vec<_>>>()?;
-            create_projection(input, expr)
+            let mut partitions = vec![];
+            for input in input {
+                let expr = expr.clone();
+                partitions.push(create_projection(input, expr)?);
+            }
+            Ok(partitions)
         },
         LogicalPlan::TableScan { table_name, table_schema, projection, projected_schema, .. } => {
+            //TODO should be FileScan not TableScan
             let table = ctx.table(table_name)?;
-            //TODO
-            let path = "/mnt/nyctaxi/parquet/year=2019/month=05/yellow_tripdata_2019-05.parquet/part-00000-b3313547-ca60-402f-9659-c13bfba3ca8d-c000.snappy.parquet";
-            Ok(Box::pin(ParquetReader::try_new(path, projection.to_owned())?))
+            let mut files = vec![];
+            build_file_list("/mnt/nyctaxi/parquet", &mut files, ".parquet")?;
+
+            Ok(files.iter().map(|file| {
+                let reader = ParquetReader::try_new(file.as_str(), projection.to_owned()).unwrap();
+                let stream: BoxStream<'static, RecordBatch> = Box::pin(reader );
+                stream
+            }).collect())
         }
         LogicalPlan::Aggregate { input, group_expr, aggr_expr, schema } => {
             let input = compile_query(ctx, input.as_ref())?;
             let group_expr = group_expr.iter().map(|e| compile_expression(e)).collect::<Result<Vec<_>>>()?;
             let aggr_expr = aggr_expr.iter().map(|e| compile_agg_expression(e)).collect::<Result<Vec<_>>>()?;
 
-            //TODO
-            unimplemented!()
+            // hash aggregate in parallel per partition
+            let mut partitions = vec![];
+            for input in input {
+                let group_expr = group_expr.clone();
+                let aggr_expr = aggr_expr.clone();
+                partitions.push(create_hash_aggregate(input, group_expr, aggr_expr)?);
+            }
+
+            //TODO wrap in merge and final hash aggregate
+
+            Ok(partitions)
+
         }
         _ => unimplemented!()
     }
@@ -115,6 +139,18 @@ fn create_projection(
 ) -> Result<BoxStream<'static, RecordBatch>> {
     Ok(Box::pin(stream.map(move |batch| apply_projection(&batch, &projection_expr))))
 }
+
+fn create_hash_aggregate(
+    stream: impl Stream<Item = RecordBatch> + Send + 'static,
+    group_expr: Vec<Arc<dyn PhysicalExpr>>,
+    aggr_expr: Vec<Arc<dyn AggregateExpr>>,
+) -> Result<BoxStream<'static, RecordBatch>> {
+
+    //Ok(Box::pin(stream.for_each(move |batch| { })))
+    unimplemented!()
+}
+
+
 
 fn apply_projection(
     batch: &RecordBatch,

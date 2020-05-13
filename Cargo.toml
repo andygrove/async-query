@@ -1,5 +1,5 @@
 [package]
-name = "distributed-scheduler"
+name = "tokio-query-execution"
 version = "0.1.0"
 authors = ["Andy Grove <andygrove73@gmail.com>"]
 edition = "2018"
@@ -10,5 +10,7 @@ edition = "2018"
 tokio = { version = "0.2", features = ["full"] }
 futures = "0.3"
 arrow = "0.17"
+datafusion = "0.17"
 parquet = "0.17"
 csv = "1.1"
+crossbeam = "0.7"
